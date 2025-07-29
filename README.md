@@ -13,7 +13,7 @@ A beautiful and interactive lottery game built as a Telegram Mini Application wh
 
 ## 🚀 Demo
 
-The app is deployed and accessible at: [Your GitHub Pages URL]
+The app is deployed and accessible at: https://VictorFortuna.github.io/Telegram_Stars
 
 ## 🎮 How to Play
 
