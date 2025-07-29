@@ -262,7 +262,9 @@ export async function createDatabaseAdapter(): Promise<DatabaseAdapter> {
 
   // Try to dynamically import and initialize Supabase
   try {
-    const { createClient } = await import('@supabase/supabase-js');
+    // Load Supabase from CDN to avoid build-time dependency
+    const supabaseModule = await import('https://cdn.skypack.dev/@supabase/supabase-js@2');
+    const { createClient } = supabaseModule;
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
     
     // Test the connection by trying to get current game
