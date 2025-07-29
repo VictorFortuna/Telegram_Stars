@@ -30,7 +30,7 @@ export class GameManager {
   }
 
   // Join a game
-  async joinGame(gameId: string, user: TelegramUser): Promise<boolean> {
+  async joinGame(gameId: string, user: TelegramUser, paymentManager: any): Promise<boolean> {
     // Check if game exists and has space
     const { data: game, error: gameError } = await supabase
       .from('games')
@@ -65,6 +65,17 @@ export class GameManager {
       throw new Error('Already joined this game');
     }
 
+    // Request star payment from user
+    const paymentResult = await paymentManager.requestStarPayment(
+      user.id,
+      game.entry_fee,
+      `Join lottery game - Entry fee: ${game.entry_fee} star${game.entry_fee > 1 ? 's' : ''}`
+    );
+
+    if (!paymentResult.success) {
+      throw new Error(`Payment failed: ${paymentResult.error}`);
+    }
+
     // Add player to game
     const { error: playerError } = await supabase
       .from('game_players')
@@ -73,7 +84,8 @@ export class GameManager {
         telegram_user_id: user.id.toString(),
         telegram_username: user.username || '',
         telegram_first_name: user.first_name,
-        payment_status: 'completed'
+        payment_status: 'completed',
+        transaction_id: paymentResult.transaction_id
       });
 
     if (playerError) {
@@ -145,14 +157,36 @@ export class GameManager {
   }
 
   // Select winner and complete game
-  async selectWinner(gameId: string): Promise<GamePlayer> {
+  async selectWinner(gameId: string, paymentManager: any): Promise<GamePlayer> {
     const players = await this.getGamePlayers(gameId);
     if (players.length === 0) {
       throw new Error('No players in game');
     }
 
+    // Get game details for prize calculation
+    const { data: game } = await supabase
+      .from('games')
+      .select('prize_pool')
+      .eq('id', gameId)
+      .single();
+
+    if (!game) {
+      throw new Error('Game not found');
+    }
+
     // Select random winner
     const winner = players[Math.floor(Math.random() * players.length)];
+    
+    // Calculate winnings (70% of prize pool)
+    const winnings = Math.floor(game.prize_pool * 0.7);
+
+    // Transfer stars to winner
+    if (winnings > 0) {
+      await paymentManager.transferStarsToWinner(
+        parseInt(winner.telegram_user_id),
+        winnings
+      );
+    }
 
     // Update game status
     await supabase
