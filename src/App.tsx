@@ -201,7 +201,7 @@ function App() {
   };
   // Real-time updates
   useEffect(() => {
-    if (!gameState.currentGameId) return;
+    if (!gameState.currentGameId || !supabase) return;
 
     const channel = supabase
       .channel('game-updates')
