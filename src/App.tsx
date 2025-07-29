@@ -135,8 +135,8 @@ function App() {
         // Get or create current game
         let currentGame = await gameManager.getCurrentGame();
         if (!currentGame) {
-          const gameId = await gameManager.createGame();
-          currentGame = await gameManager.getCurrentGame();
+          // In demo mode, don't try to create a real game
+          currentGame = null;
         }
         
         if (currentGame) {
@@ -154,9 +154,22 @@ function App() {
             hasJoined,
             loading: false
           }));
+        } else {
+          // No current game or demo mode
+          setGameState(prev => ({
+            ...prev,
+            currentGameId: 'demo-game',
+            players: [],
+            prizePool: 0,
+            maxPlayers: 10,
+            gameActive: true,
+            userStars: balance,
+            hasJoined: false,
+            loading: false
+          }));
         }
       } catch (dbError) {
-        console.error('Database error, falling back to demo mode:', dbError);
+        console.warn('Database error, falling back to demo mode:', dbError);
         // Fallback to demo mode
         setGameState(prev => ({
           ...prev,
@@ -171,7 +184,7 @@ function App() {
         }));
       }
     } catch (error) {
-      console.error('Failed to initialize app:', error);
+      console.warn('Failed to initialize app, using demo mode:', error);
       // Fallback to demo mode
       setGameState(prev => ({
         ...prev,
