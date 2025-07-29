@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/star-icon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Star Lottery - Telegram Mini App</title>
     <meta name="description" content="Win big with Telegram Stars in our lottery game!" />
     
     <!-- Telegram Web App Script -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
     
     <!-- Optimize for Telegram -->
     <meta name="theme-color" content="#8b5cf6" />
@@ -26,6 +26,8 @@
       }
       
       body {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
         margin: 0;
         padding: 0;
         overflow-x: hidden;
