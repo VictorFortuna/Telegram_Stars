@@ -201,8 +201,8 @@ export class GameManager {
         .single();
 
       if (error) {
-        // Check if it's a table not found error
-        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        // Check if it's a table not found error (PostgreSQL error code 42P01)
+        if (error.code === '42P01' || error.message?.includes('relation') && error.message?.includes('does not exist')) {
           console.warn('Database table does not exist, using demo mode');
           return null;
         }
@@ -211,7 +211,12 @@ export class GameManager {
 
       return data;
     } catch (error) {
-      console.warn('Database table does not exist, using demo mode');
+      // Handle any other database connection errors
+      if (error instanceof Error && (error.message.includes('relation') || error.message.includes('42P01'))) {
+        console.warn('Database table does not exist, using demo mode');
+      } else {
+        console.warn('Database error, using demo mode:', error);
+      }
       return null;
     }
   }
