@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Star, Users, Trophy, Play } from 'lucide-react';
-import { supabase } from './lib/supabase';
+import { createDatabaseAdapter } from './lib/database-adapter';
 import { GameManager } from './lib/game-manager';
 import { TelegramPayments } from './lib/telegram-payments';
 import type { Game, GamePlayer } from './lib/supabase';
@@ -89,10 +89,8 @@ function App() {
 
   const [isAnimating, setIsAnimating] = useState(false);
   const [showWinner, setShowWinner] = useState(false);
-  const [gameManager] = useState(() => new GameManager());
-  const [paymentManager] = useState(() => new TelegramPayments(
-    import.meta.env.VITE_TELEGRAM_BOT_TOKEN || ''
-  ));
+  const [gameManager, setGameManager] = useState<GameManager | null>(null);
+  const [paymentManager, setPaymentManager] = useState<TelegramPayments | null>(null);
 
   // Initialize Telegram WebApp
   useEffect(() => {
@@ -109,38 +107,25 @@ function App() {
   // Initialize app with real data
   const initializeApp = async () => {
     try {
-      const user = getCurrentUser();
+      // Initialize database adapter and managers
+      const adapter = await createDatabaseAdapter();
+      const gm = new GameManager(adapter);
+      const pm = new TelegramPayments(import.meta.env.VITE_TELEGRAM_BOT_TOKEN || '', adapter);
       
-      // Check if Supabase is available
-      if (!supabase) {
-        // Demo mode - use local state
-        setGameState(prev => ({
-          ...prev,
-          currentGameId: 'demo-game',
-          players: [],
-          prizePool: 0,
-          maxPlayers: 10,
-          gameActive: true,
-          userStars: 10, // Demo balance
-          hasJoined: false,
-          loading: false
-        }));
-        return;
-      }
+      setGameManager(gm);
+      setPaymentManager(pm);
+      
+      const user = getCurrentUser();
       
       try {
         // Get user's star balance
-        const balance = await paymentManager.getUserBalance(user.id);
+        const balance = await pm.getUserBalance(user.id);
         
         // Get or create current game
-        let currentGame = await gameManager.getCurrentGame();
-        if (!currentGame) {
-          // In demo mode, don't try to create a real game
-          currentGame = null;
-        }
+        let currentGame = await gm.getCurrentGame();
         
         if (currentGame) {
-          const players = await gameManager.getGamePlayers(currentGame.id);
+          const players = await gm.getGamePlayers(currentGame.id);
           const hasJoined = players.some(p => p.telegram_user_id === user.id.toString());
           
           setGameState(prev => ({
@@ -201,25 +186,18 @@ function App() {
   };
   // Real-time updates
   useEffect(() => {
-    if (!gameState.currentGameId || !supabase) return;
+    if (!gameState.currentGameId || !gameManager) return;
 
-    const channel = supabase
-      .channel('game-updates')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'game_players',
-        filter: `game_id=eq.${gameState.currentGameId}`
-      }, async () => {
-        // Refresh game data
-        await initializeApp();
-      })
-      .subscribe();
+    const unsubscribe = gameManager.subscribeToGameUpdates(gameState.currentGameId, async () => {
+      // Refresh game data
+      await initializeApp();
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
-  }, [gameState.currentGameId]);
+  }, [gameState.currentGameId, gameManager]);
+  
   const getCurrentUser = () => {
     const user = tg.WebApp.initDataUnsafe?.user;
     return {
@@ -229,7 +207,7 @@ function App() {
   };
 
   const joinGame = async () => {
-    if (gameState.loading) return;
+    if (gameState.loading || !gameManager || !paymentManager) return;
     
     if (gameState.userStars < 1) {
       tg.WebApp.showAlert('You need at least 1 star to join the game!');
@@ -248,7 +226,7 @@ function App() {
     try {
       const user = getCurrentUser();
       
-      if (!supabase || gameState.currentGameId === 'demo-game') {
+      if (gameState.currentGameId === 'demo-game') {
         // Demo mode - simulate joining
         const newPlayer = {
           id: `player-${user.id}`,
@@ -285,7 +263,7 @@ function App() {
         }
       } else {
         // Real database mode
-        await gameManager.joinGame(gameState.currentGameId!, {
+        await gameManager!.joinGame(gameState.currentGameId!, {
           id: user.id,
           first_name: user.name.split(' ')[0],
           last_name: user.name.split(' ').slice(1).join(' ') || undefined,
@@ -315,6 +293,8 @@ function App() {
 
   const createNewGame = async () => {
     try {
+      if (!gameManager) return;
+      
       setGameState(prev => ({ ...prev, loading: true }));
       const gameId = await gameManager.createGame();
       await initializeApp();
@@ -327,7 +307,7 @@ function App() {
   };
 
   // Show loading state
-  if (gameState.loading) {
+  if (gameState.loading || !gameManager || !paymentManager) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800 text-white flex items-center justify-center">
         <div className="text-center">
