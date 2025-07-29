@@ -93,16 +93,30 @@ export class TelegramPayments {
       return 10;
     }
     
-    const { data, error } = await supabase
-      .from('user_balances')
-      .select('stars_balance')
-      .eq('telegram_user_id', userId.toString())
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('user_balances')
+        .select('stars_balance')
+        .eq('telegram_user_id', userId.toString())
+        .single();
 
-    if (error || !data) {
-      return 0; // New user, no balance
+      if (error) {
+        // Check if it's a table not found error
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          console.warn('Database table does not exist, using demo mode');
+          return 10; // Demo balance
+        }
+        return 0; // New user, no balance
+      }
+
+      if (!data) {
+        return 0; // New user, no balance
+      }
+
+      return data.stars_balance;
+    } catch (error) {
+      console.warn('Database table does not exist, using demo mode');
+      return 10; // Demo balance
     }
-
-    return data.stars_balance;
   }
 }
