@@ -14,13 +14,15 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
-          lucide: ['lucide-react']
+          lucide: ['lucide-react'],
+          supabase: ['@supabase/supabase-js']
         }
       }
     }
   },
   optimizeDeps: {
-    exclude: ['lucide-react'],
+    include: ['@supabase/supabase-js'],
+    exclude: ['lucide-react']
   },
   server: {
     host: true,
