@@ -4,7 +4,13 @@
   "version": "1.0.0",
   "type": "module",
   "description": "A Telegram Mini App for star lottery games",
-  "keywords": ["telegram", "mini-app", "lottery", "stars", "game"],
+  "keywords": [
+    "telegram",
+    "mini-app",
+    "lottery",
+    "stars",
+    "game"
+  ],
   "author": "VictorFortuna",
   "license": "MIT",
   "homepage": "https://VictorFortuna.github.io/Telegram_Stars",
@@ -22,7 +28,8 @@
   "dependencies": {
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@supabase/supabase-js": "^2.53.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
