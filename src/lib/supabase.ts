@@ -1,26 +1,38 @@
-import { createClient } from '@supabase/supabase-js';
+// Conditional Supabase client creation
+let supabase: any = null;
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-// Create a mock client if environment variables are missing
-const createSupabaseClient = () => {
+// Only import and create Supabase client if environment variables are available
+const initializeSupabase = async () => {
   if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === '' || supabaseAnonKey === '') {
-    console.warn('Supabase environment variables not found, using mock client');
+    console.warn('Supabase environment variables not found, using demo mode');
     return null;
   }
   
-  // Validate URL format before creating client
+  // Validate URL format before importing Supabase
   try {
     new URL(supabaseUrl);
+    
+    // Dynamic import to avoid build issues when not needed
+    const { createClient } = await import('@supabase/supabase-js');
     return createClient(supabaseUrl, supabaseAnonKey);
   } catch (error) {
-    console.warn('Invalid Supabase URL format, using mock client');
+    console.warn('Invalid Supabase URL format or import failed, using demo mode');
     return null;
   }
 };
 
-export const supabase = createSupabaseClient();
+// Initialize supabase client
+initializeSupabase().then(client => {
+  supabase = client;
+}).catch(() => {
+  console.warn('Failed to initialize Supabase, using demo mode');
+  supabase = null;
+});
+
+export { supabase };
 
 // Database types
 export interface Game {
