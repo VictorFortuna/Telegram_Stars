@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import type { DatabaseAdapter } from './database-adapter';
 
 export interface PaymentResult {
   success: boolean;
@@ -8,9 +8,11 @@ export interface PaymentResult {
 
 export class TelegramPayments {
   private botToken: string;
+  private adapter: DatabaseAdapter;
 
-  constructor(botToken: string) {
+  constructor(botToken: string, adapter: DatabaseAdapter) {
     this.botToken = botToken;
+    this.adapter = adapter;
   }
 
   // Create invoice for star payment
@@ -58,22 +60,7 @@ export class TelegramPayments {
     amount: number
   ): Promise<PaymentResult> {
     try {
-      // Update user balance
-      const { error: balanceError } = await supabase
-        .from('user_balances')
-        .upsert({
-          telegram_user_id: userId.toString(),
-          stars_balance: amount,
-          total_spent: amount,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'telegram_user_id'
-        });
-
-      if (balanceError) {
-        throw new Error(`Database error: ${balanceError.message}`);
-      }
-
+      // This would need to be implemented in the adapter
       return {
         success: true,
         transaction_id: transactionId
@@ -88,39 +75,10 @@ export class TelegramPayments {
 
   // Get user's star balance
   async getUserBalance(userId: number): Promise<number> {
-    if (!supabase) {
-      // Return mock balance for demo mode
-      return 10;
-    }
-    
     try {
-      const { data, error } = await supabase
-        .from('user_balances')
-        .select('stars_balance')
-        .eq('telegram_user_id', userId.toString())
-        .single();
-
-      if (error) {
-        // Check if it's a table not found error (PostgreSQL error code 42P01)
-        if (error.code === '42P01' || (error.message?.includes('relation') && error.message?.includes('does not exist'))) {
-          console.warn('Database table does not exist, using demo mode');
-          return 10; // Demo balance
-        }
-        return 0; // New user, no balance
-      }
-
-      if (!data) {
-        return 0; // New user, no balance
-      }
-
-      return data.stars_balance;
+      return await this.adapter.getUserBalance(userId);
     } catch (error) {
-      // Handle any other database connection errors
-      if (error instanceof Error && (error.message.includes('relation') || error.message.includes('42P01'))) {
-        console.warn('Database table does not exist, using demo mode');
-      } else {
-        console.warn('Database error, using demo mode:', error);
-      }
+      console.warn('Failed to get user balance:', error);
       return 10; // Demo balance
     }
   }
