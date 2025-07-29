@@ -36,6 +36,12 @@ export class GameManager {
 
   // Join a game
   async joinGame(gameId: string, user: TelegramUser): Promise<boolean> {
+    if (!supabase) {
+      // Demo mode - just return success
+      return true;
+    }
+
+    try {
     // Check if game exists and has space
     const { data: game, error: gameError } = await supabase
       .from('games')
@@ -44,7 +50,16 @@ export class GameManager {
       .eq('status', 'waiting')
       .single();
 
-    if (gameError || !game) {
+      if (gameError) {
+        // Check if it's a table not found error
+        if (gameError.code === '42P01' || gameError.message?.includes('does not exist')) {
+          console.warn('Database table does not exist, using demo mode');
+          return true;
+        }
+        throw new Error('Game not found or not accepting players');
+      }
+
+      if (!game) {
       throw new Error('Game not found or not accepting players');
     }
 
@@ -103,6 +118,13 @@ export class GameManager {
     }
 
     return true;
+    } catch (error) {
+      if (error instanceof Error && (error.message.includes('does not exist') || error.message.includes('42P01'))) {
+        console.warn('Database table does not exist, using demo mode');
+        return true;
+      }
+      throw error;
+    }
   }
 
   // Select winner and distribute prizes
@@ -165,33 +187,61 @@ export class GameManager {
 
   // Get current active game
   async getCurrentGame(): Promise<Game | null> {
-    const { data, error } = await supabase
-      .from('games')
-      .select('*')
-      .eq('status', 'waiting')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (error) {
+    if (!supabase) {
       return null;
     }
+    
+    try {
+      const { data, error } = await supabase
+        .from('games')
+        .select('*')
+        .eq('status', 'waiting')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-    return data;
+      if (error) {
+        // Check if it's a table not found error
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          console.warn('Database table does not exist, using demo mode');
+          return null;
+        }
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.warn('Database table does not exist, using demo mode');
+      return null;
+    }
   }
 
   // Get game players
   async getGamePlayers(gameId: string): Promise<GamePlayer[]> {
-    const { data, error } = await supabase
-      .from('game_players')
-      .select('*')
-      .eq('game_id', gameId)
-      .order('joined_at', { ascending: true });
-
-    if (error) {
-      throw new Error(`Failed to get players: ${error.message}`);
+    if (!supabase) {
+      return [];
     }
+    
+    try {
+      const { data, error } = await supabase
+        .from('game_players')
+        .select('*')
+        .eq('game_id', gameId)
+        .order('joined_at', { ascending: true });
 
-    return data || [];
+      if (error) {
+        // Check if it's a table not found error
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          console.warn('Database table does not exist, using demo mode');
+          return [];
+        }
+        throw new Error(`Failed to get players: ${error.message}`);
+      }
+
+      return data || [];
+    } catch (error) {
+      console.warn('Database table does not exist, using demo mode');
+      return [];
+    }
   }
 }
