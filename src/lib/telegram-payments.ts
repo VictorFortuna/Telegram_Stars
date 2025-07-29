@@ -89,16 +89,22 @@ export class TelegramPayments {
 
   // Get user's star balance
   async getUserBalance(userId: number): Promise<number> {
-    const { data, error } = await supabase
-      .from('user_balances')
-      .select('stars_balance')
-      .eq('telegram_user_id', userId.toString())
-      .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from('user_balances')
+        .select('stars_balance')
+        .eq('telegram_user_id', userId.toString())
+        .maybeSingle();
 
-    if (error) {
-      throw new Error(`Failed to get balance: ${error.message}`);
+      if (error) {
+        console.warn('Database error getting balance:', error.message);
+        return 0;
+      }
+
+      return data?.stars_balance || 0;
+    } catch (error) {
+      console.warn('Failed to get balance from database:', error);
+      return 0;
     }
-
-    return data?.stars_balance || 0;
   }
 }
