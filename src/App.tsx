@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Star, Users, Trophy, Play } from 'lucide-react';
-import { createDatabaseAdapter } from './lib/database-adapter';
 import { GameManager } from './lib/game-manager';
 import { TelegramPayments } from './lib/telegram-payments';
 import type { Game, GamePlayer } from './lib/supabase';
@@ -57,20 +56,70 @@ const mockTelegram = {
         username: 'johndoe'
       }
     },
-    showAlert: (message: string, callback?: () => void) => { alert(message); callback?.(); },
+    showAlert: (message: string, callback?: () => void) => { 
+      try {
+        alert(message); 
+        callback?.(); 
+      } catch (error) {
+        console.error('Alert failed:', error);
+        callback?.();
+      }
+    },
     showConfirm: (message: string, callback: (confirmed: boolean) => void) => {
-      callback(confirm(message));
+      try {
+        callback(confirm(message));
+      } catch (error) {
+        console.error('Confirm failed:', error);
+        callback(false);
+      }
     }
   }
 };
 
-// Use mock if Telegram object is not available  
+// Enhanced Telegram WebApp wrapper with fallbacks
 const tg = (() => {
   if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
     console.log('Using real Telegram WebApp');
-    return window.Telegram;
+    const realTg = window.Telegram;
+    
+    // Enhance with fallback methods for compatibility
+    const enhancedWebApp = {
+      ...realTg.WebApp,
+      showAlert: (message: string, callback?: () => void) => {
+        try {
+          // Check if showPopup is supported (version 6.1+)
+          if (realTg.WebApp.showPopup && typeof realTg.WebApp.showPopup === 'function') {
+            realTg.WebApp.showAlert(message, callback);
+          } else {
+            console.log('Telegram showAlert not supported, using browser alert');
+            alert(message);
+            callback?.();
+          }
+        } catch (error) {
+          console.warn('Telegram showAlert failed, using fallback:', error);
+          alert(message);
+          callback?.();
+        }
+      },
+      showConfirm: (message: string, callback: (confirmed: boolean) => void) => {
+        try {
+          // Check if showPopup is supported (version 6.1+)
+          if (realTg.WebApp.showPopup && typeof realTg.WebApp.showPopup === 'function') {
+            realTg.WebApp.showConfirm(message, callback);
+          } else {
+            console.log('Telegram showConfirm not supported, using browser confirm');
+            callback(confirm(message));
+          }
+        } catch (error) {
+          console.warn('Telegram showConfirm failed, using fallback:', error);
+          callback(confirm(message));
+        }
+      }
+    };
+    
+    return { WebApp: enhancedWebApp };
   }
-  console.log('Using mock Telegram WebApp');
+  console.log('Using mock Telegram WebApp for development');
   return mockTelegram;
 })();
 
@@ -89,8 +138,8 @@ function App() {
 
   const [isAnimating, setIsAnimating] = useState(false);
   const [showWinner, setShowWinner] = useState(false);
-  const [gameManager, setGameManager] = useState<GameManager | null>(null);
-  const [paymentManager, setPaymentManager] = useState<TelegramPayments | null>(null);
+  const [gameManager] = useState(() => new GameManager());
+  const [paymentManager] = useState(() => new TelegramPayments(import.meta.env.VITE_TELEGRAM_BOT_TOKEN || ''));
 
   // Initialize Telegram WebApp
   useEffect(() => {
@@ -98,7 +147,7 @@ function App() {
       tg.WebApp.ready();
       tg.WebApp.expand();
     } catch (error) {
-      console.log('Telegram WebApp not available, using demo mode');
+      console.log('Telegram WebApp not available, using development mode');
     }
     
     initializeApp();
@@ -107,86 +156,55 @@ function App() {
   // Initialize app with real data
   const initializeApp = async () => {
     try {
-      // Initialize database adapter and managers
-      const adapter = await createDatabaseAdapter();
-      const gm = new GameManager(adapter);
-      const pm = new TelegramPayments(import.meta.env.VITE_TELEGRAM_BOT_TOKEN || '', adapter);
-      
-      setGameManager(gm);
-      setPaymentManager(pm);
+      setGameState(prev => ({ ...prev, loading: true }));
       
       const user = getCurrentUser();
       
-      try {
-        // Get user's star balance
-        const balance = await pm.getUserBalance(user.id);
+      // Get user's star balance
+      const balance = await paymentManager.getUserBalance(user.id);
+      
+      // Get or create current game
+      let currentGame = await gameManager.getCurrentGame();
+      
+      if (!currentGame) {
+        // Create a new game if none exists
+        const gameId = await gameManager.createGame();
+        currentGame = await gameManager.getCurrentGame();
+      }
+      
+      if (currentGame) {
+        const players = await gameManager.getGamePlayers(currentGame.id);
+        const hasJoined = players.some(p => p.telegram_user_id === user.id.toString());
         
-        // Get or create current game
-        let currentGame = await gm.getCurrentGame();
-        
-        if (currentGame) {
-          const players = await gm.getGamePlayers(currentGame.id);
-          const hasJoined = players.some(p => p.telegram_user_id === user.id.toString());
-          
-          setGameState(prev => ({
-            ...prev,
-            currentGameId: currentGame.id,
-            players,
-            prizePool: currentGame.prize_pool,
-            maxPlayers: currentGame.max_players,
-            gameActive: currentGame.status === 'waiting',
-            userStars: balance,
-            hasJoined,
-            loading: false
-          }));
-        } else {
-          // No current game or demo mode
-          setGameState(prev => ({
-            ...prev,
-            currentGameId: 'demo-game',
-            players: [],
-            prizePool: 0,
-            maxPlayers: 10,
-            gameActive: true,
-            userStars: balance,
-            hasJoined: false,
-            loading: false
-          }));
-        }
-      } catch (dbError) {
-        console.warn('Database error, falling back to demo mode:', dbError);
-        // Fallback to demo mode
         setGameState(prev => ({
           ...prev,
-          currentGameId: 'demo-game',
-          players: [],
-          prizePool: 0,
-          maxPlayers: 10,
-          gameActive: true,
-          userStars: 10,
-          hasJoined: false,
+          currentGameId: currentGame!.id,
+          players,
+          prizePool: currentGame!.prize_pool,
+          maxPlayers: currentGame!.max_players,
+          gameActive: currentGame!.status === 'waiting',
+          userStars: balance,
+          hasJoined,
           loading: false
         }));
+
+        // Check if game is full and needs winner selection
+        if (currentGame.status === 'full' && !currentGame.winner_id) {
+          const winner = await gameManager.selectWinner(currentGame.id);
+          setGameState(prev => ({ ...prev, winner, gameActive: false }));
+          setShowWinner(true);
+        }
       }
     } catch (error) {
-      console.warn('Failed to initialize app, using demo mode:', error);
-      // Fallback to demo mode
-      setGameState(prev => ({
-        ...prev,
-        currentGameId: 'demo-game',
-        players: [],
-        prizePool: 0,
-        maxPlayers: 10,
-        gameActive: true,
-        userStars: 10,
-        hasJoined: false,
-        loading: false
-      }));
+      console.error('Failed to initialize app:', error);
+      tg.WebApp.showAlert(`Failed to load game: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setGameState(prev => ({ ...prev, loading: false }));
     }
   };
+
   // Real-time updates
   useEffect(() => {
-    if (!gameState.currentGameId || !gameManager) return;
+    if (!gameState.currentGameId) return;
 
     const unsubscribe = gameManager.subscribeToGameUpdates(gameState.currentGameId, async () => {
       // Refresh game data
@@ -196,7 +214,7 @@ function App() {
     return () => {
       unsubscribe();
     };
-  }, [gameState.currentGameId, gameManager]);
+  }, [gameState.currentGameId]);
   
   const getCurrentUser = () => {
     const user = tg.WebApp.initDataUnsafe?.user;
@@ -207,7 +225,7 @@ function App() {
   };
 
   const joinGame = async () => {
-    if (gameState.loading || !gameManager || !paymentManager) return;
+    if (gameState.loading || !gameState.currentGameId) return;
     
     if (gameState.userStars < 1) {
       tg.WebApp.showAlert('You need at least 1 star to join the game!');
@@ -219,61 +237,21 @@ function App() {
       return;
     }
 
-
     setIsAnimating(true);
     setGameState(prev => ({ ...prev, loading: true }));
 
     try {
       const user = getCurrentUser();
       
-      if (gameState.currentGameId === 'demo-game') {
-        // Demo mode - simulate joining
-        const newPlayer = {
-          id: `player-${user.id}`,
-          game_id: 'demo-game',
-          telegram_user_id: user.id.toString(),
-          telegram_username: `user${user.id}`,
-          telegram_first_name: user.name.split(' ')[0],
-          joined_at: new Date().toISOString(),
-          payment_status: 'completed' as const,
-          transaction_id: `demo-tx-${Date.now()}`
-        };
-        
-        setGameState(prev => ({
-          ...prev,
-          players: [...prev.players, newPlayer],
-          prizePool: prev.prizePool + 1,
-          userStars: prev.userStars - 1,
-          hasJoined: true,
-          loading: false
-        }));
-        
-        // Simulate winner selection if game is full
-        if (gameState.players.length + 1 >= gameState.maxPlayers) {
-          setTimeout(() => {
-            const allPlayers = [...gameState.players, newPlayer];
-            const winner = allPlayers[Math.floor(Math.random() * allPlayers.length)];
-            setGameState(prev => ({
-              ...prev,
-              winner,
-              gameActive: false
-            }));
-            setShowWinner(true);
-          }, 2000);
-        }
-      } else {
-        // Real database mode
-        await gameManager!.joinGame(gameState.currentGameId!, {
-          id: user.id,
-          first_name: user.name.split(' ')[0],
-          last_name: user.name.split(' ').slice(1).join(' ') || undefined,
-          username: `user${user.id}`
-        });
-        
-        // Refresh game state
-        await initializeApp();
-      }
+      await gameManager.joinGame(gameState.currentGameId, {
+        id: user.id,
+        first_name: user.name.split(' ')[0],
+        last_name: user.name.split(' ').slice(1).join(' ') || undefined,
+        username: `user${user.id}`
+      });
       
+      // Refresh game state
+      await initializeApp();
       setIsAnimating(false);
     } catch (error) {
       console.error('Failed to join game:', error);
@@ -293,10 +271,8 @@ function App() {
 
   const createNewGame = async () => {
     try {
-      if (!gameManager) return;
-      
       setGameState(prev => ({ ...prev, loading: true }));
-      const gameId = await gameManager.createGame();
+      await gameManager.createGame();
       await initializeApp();
       setShowWinner(false);
     } catch (error) {
@@ -307,7 +283,7 @@ function App() {
   };
 
   // Show loading state
-  if (gameState.loading || !gameManager || !paymentManager) {
+  if (gameState.loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800 text-white flex items-center justify-center">
         <div className="text-center">
@@ -317,6 +293,7 @@ function App() {
       </div>
     );
   }
+
   const progress = (gameState.players.length / gameState.maxPlayers) * 100;
 
   return (
@@ -391,7 +368,7 @@ function App() {
                 <div className="text-center">
                   <div className="text-2xl mb-2">🎉</div>
                   <div className="text-yellow-300 font-bold text-lg">Winner!</div>
-                  <div className="text-white font-medium">{gameState.winner.name}</div>
+                  <div className="text-white font-medium">{gameState.winner.telegram_first_name}</div>
                   <div className="text-yellow-400 text-sm mt-1">
                     <Star className="w-4 h-4 inline mr-1 fill-current" />
                     {Math.floor(gameState.prizePool * 0.7)} stars
