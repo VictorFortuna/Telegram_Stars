@@ -1,4 +1,4 @@
-import type { DatabaseAdapter } from './database-adapter';
+import { supabase } from './supabase';
 
 export interface PaymentResult {
   success: boolean;
@@ -8,11 +8,9 @@ export interface PaymentResult {
 
 export class TelegramPayments {
   private botToken: string;
-  private adapter: DatabaseAdapter;
 
-  constructor(botToken: string, adapter: DatabaseAdapter) {
+  constructor(botToken: string) {
     this.botToken = botToken;
-    this.adapter = adapter;
   }
 
   // Create invoice for star payment
@@ -60,7 +58,23 @@ export class TelegramPayments {
     amount: number
   ): Promise<PaymentResult> {
     try {
-      // This would need to be implemented in the adapter
+      // Update user balance
+      const { error } = await supabase
+        .from('user_balances')
+        .upsert({
+          telegram_user_id: userId.toString(),
+          stars_balance: amount,
+          total_spent: 0,
+          total_won: 0,
+          games_played: 0,
+          games_won: 0,
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) {
+        throw new Error(`Failed to update balance: ${error.message}`);
+      }
+
       return {
         success: true,
         transaction_id: transactionId
@@ -75,11 +89,16 @@ export class TelegramPayments {
 
   // Get user's star balance
   async getUserBalance(userId: number): Promise<number> {
-    try {
-      return await this.adapter.getUserBalance(userId);
-    } catch (error) {
-      console.warn('Failed to get user balance:', error);
-      return 10; // Demo balance
+    const { data, error } = await supabase
+      .from('user_balances')
+      .select('stars_balance')
+      .eq('telegram_user_id', userId.toString())
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Failed to get balance: ${error.message}`);
     }
+
+    return data?.stars_balance || 0;
   }
 }
