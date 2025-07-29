@@ -160,16 +160,8 @@ function App() {
       
       const user = getCurrentUser();
       
-      // Get user's star balance with fallback
-      let balance = 0;
-      try {
-        balance = await paymentManager.getUserBalance(user.id);
-      } catch (error) {
-        console.log('Could not fetch balance from database, using fallback');
-        // For now, we'll use a mock balance since we can't access real Telegram star balance
-        // In a real implementation, this would come from Telegram's API
-        balance = 100; // Mock balance for testing
-      }
+      // Get user's real star balance from Telegram
+      const balance = await paymentManager.getRealStarBalance(user.id);
       
       // Get or create current game
       let currentGame = await gameManager.getCurrentGame();
@@ -198,7 +190,7 @@ function App() {
 
         // Check if game is full and needs winner selection
         if (currentGame.status === 'full' && !currentGame.winner_id) {
-          const winner = await gameManager.selectWinner(currentGame.id);
+          const winner = await gameManager.selectWinner(currentGame.id, paymentManager);
           setGameState(prev => ({ ...prev, winner, gameActive: false }));
           setShowWinner(true);
         }
@@ -256,7 +248,7 @@ function App() {
         first_name: user.name.split(' ')[0],
         last_name: user.name.split(' ').slice(1).join(' ') || undefined,
         username: `user${user.id}`
-      });
+      }, paymentManager);
       
       // Refresh game state
       await initializeApp();
