@@ -1,4 +1,4 @@
-import type { DatabaseAdapter } from './database-adapter';
+import { supabase } from './supabase';
 import type { Game, GamePlayer } from './supabase';
 
 export interface TelegramUser {
@@ -9,51 +9,161 @@ export interface TelegramUser {
 }
 
 export class GameManager {
-  private adapter: DatabaseAdapter;
-
-  constructor(adapter: DatabaseAdapter) {
-    this.adapter = adapter;
-  }
-
   // Create a new game
   async createGame(maxPlayers: number = 10, entryFee: number = 1): Promise<string> {
-    return await this.adapter.createGame(maxPlayers, entryFee);
+    const { data, error } = await supabase
+      .from('games')
+      .insert({
+        status: 'waiting',
+        max_players: maxPlayers,
+        entry_fee: entryFee,
+        prize_pool: 0
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      throw new Error(`Failed to create game: ${error.message}`);
+    }
+
+    return data.id;
   }
 
   // Join a game
   async joinGame(gameId: string, user: TelegramUser): Promise<boolean> {
-    return await this.adapter.joinGame(gameId, user);
-  }
+    // Check if game exists and has space
+    const { data: game, error: gameError } = await supabase
+      .from('games')
+      .select('*')
+      .eq('id', gameId)
+      .eq('status', 'waiting')
+      .single();
 
-  // Select winner and distribute prizes (simplified for demo)
-  async selectWinner(gameId: string): Promise<void> {
-    // This would need to be implemented in the adapter
-    // For now, just a placeholder
-    console.log('Winner selection for game:', gameId);
+    if (gameError || !game) {
+      throw new Error('Game not found or not accepting players');
+    }
+
+    // Check current player count
+    const { count } = await supabase
+      .from('game_players')
+      .select('*', { count: 'exact', head: true })
+      .eq('game_id', gameId);
+
+    if (count && count >= game.max_players) {
+      throw new Error('Game is full');
+    }
+
+    // Check if user already joined
+    const { data: existingPlayer } = await supabase
+      .from('game_players')
+      .select('id')
+      .eq('game_id', gameId)
+      .eq('telegram_user_id', user.id.toString())
+      .maybeSingle();
+
+    if (existingPlayer) {
+      throw new Error('Already joined this game');
+    }
+
+    // Add player to game
+    const { error: playerError } = await supabase
+      .from('game_players')
+      .insert({
+        game_id: gameId,
+        telegram_user_id: user.id.toString(),
+        telegram_username: user.username || '',
+        telegram_first_name: user.first_name,
+        payment_status: 'completed'
+      });
+
+    if (playerError) {
+      throw new Error(`Failed to join game: ${playerError.message}`);
+    }
+
+    // Update prize pool
+    const newPrizePool = game.prize_pool + game.entry_fee;
+    const newPlayerCount = (count || 0) + 1;
+
+    await supabase
+      .from('games')
+      .update({ 
+        prize_pool: newPrizePool,
+        status: newPlayerCount >= game.max_players ? 'full' : 'waiting'
+      })
+      .eq('id', gameId);
+
+    return true;
   }
 
   // Get current active game
   async getCurrentGame(): Promise<Game | null> {
-    try {
-      return await this.adapter.getCurrentGame();
-    } catch (error) {
-      console.warn('Failed to get current game:', error);
-      return null;
+    const { data, error } = await supabase
+      .from('games')
+      .select('*')
+      .eq('status', 'waiting')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Failed to get current game: ${error.message}`);
     }
+
+    return data;
   }
 
   // Get game players
   async getGamePlayers(gameId: string): Promise<GamePlayer[]> {
-    try {
-      return await this.adapter.getGamePlayers(gameId);
-    } catch (error) {
-      console.warn('Failed to get game players:', error);
-      return [];
+    const { data, error } = await supabase
+      .from('game_players')
+      .select('*')
+      .eq('game_id', gameId)
+      .order('joined_at', { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to get players: ${error.message}`);
     }
+
+    return data || [];
   }
 
   // Subscribe to game updates
   subscribeToGameUpdates(gameId: string, callback: () => void): () => void {
-    return this.adapter.subscribeToGameUpdates(gameId, callback);
+    const channel = supabase
+      .channel('game-updates')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'game_players',
+        filter: `game_id=eq.${gameId}`
+      }, callback)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }
+
+  // Select winner and complete game
+  async selectWinner(gameId: string): Promise<GamePlayer> {
+    const players = await this.getGamePlayers(gameId);
+    if (players.length === 0) {
+      throw new Error('No players in game');
+    }
+
+    // Select random winner
+    const winner = players[Math.floor(Math.random() * players.length)];
+
+    // Update game status
+    await supabase
+      .from('games')
+      .update({
+        status: 'completed',
+        winner_id: winner.telegram_user_id,
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', gameId);
+
+    return winner;
   }
 }
