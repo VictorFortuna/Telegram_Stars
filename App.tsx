@@ -43,8 +43,8 @@ const mockTelegram = {
   }
 };
 
-// Use mock if Telegram object is not available
-const tg = (window as any).Telegram || mockTelegram;
+// Use mock if Telegram object is not available  
+const tg = (typeof window !== 'undefined' && (window as any).Telegram) || mockTelegram;
 
 function App() {
   const [gameState, setGameState] = useState<GameState>({
@@ -62,8 +62,12 @@ function App() {
 
   // Initialize Telegram WebApp
   useEffect(() => {
-    tg.WebApp.ready();
-    tg.WebApp.expand();
+    try {
+      tg.WebApp.ready();
+      tg.WebApp.expand();
+    } catch (error) {
+      console.log('Telegram WebApp not available, using demo mode');
+    }
     
     // Load saved game state
     const savedState = localStorage.getItem('lotteryGameState');
