@@ -5,12 +5,12 @@
   "type": "module",
   "description": "A Telegram Mini App for star lottery games",
   "keywords": ["telegram", "mini-app", "lottery", "stars", "game"],
-  "author": "Your Name",
+  "author": "VictorFortuna",
   "license": "MIT",
-  "homepage": "https://yourusername.github.io/telegram-star-lottery",
+  "homepage": "https://VictorFortuna.github.io/Telegram_Stars",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/telegram-star-lottery.git"
+    "url": "https://github.com/VictorFortuna/Telegram_Stars.git"
   },
   "scripts": {
     "dev": "vite",
